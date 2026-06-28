@@ -142,9 +142,9 @@ const trendPoints = [
 const weeklySpend = [2100.0, 3400.0, 5200.0, 4100.0, 1800.0, 6300.0, 2900.0];
 const weekLabels  = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-const totalIncome  = 60500.0;
-const totalExpense = 44207.0;
-const netBalance   = 16293.0;
+double get totalIncome => transactions.where((t) => t.isIncome).fold(0.0, (sum, t) => sum + t.amount);
+double get totalExpense => transactions.where((t) => !t.isIncome).fold(0.0, (sum, t) => sum + t.amount);
+double get netBalance => totalIncome - totalExpense;
 const savingsPot   = 16320.0;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -468,16 +468,30 @@ Future<void> showAddTxModal(BuildContext context, {required VoidCallback onAdded
           // Save button
           GestureDetector(
             onTap: () {
-              final amt = double.tryParse(amtCtrl.text.replaceAll(',', '')) ?? 0;
-              if (amt > 0) {
-                transactions.insert(0, TxItem(
-                  noteCtrl.text.isEmpty ? (catLabels[selectedCat] ?? 'Transaction') : noteCtrl.text,
-                  selectedDate, selectedCat, amt, !isExpense, note: noteCtrl.text,
-                ));
-                Navigator.pop(context);
-                onAdded();
-              }
-            },
+                  final amt = double.tryParse(
+                        amtCtrl.text.replaceAll(',', ''),
+                      ) ??
+                      0;
+
+                  if (amt <= 0) return;
+
+                  final tx = TxItem(
+                    noteCtrl.text.trim().isEmpty
+                        ? (catLabels[selectedCat] ?? "Transaction")
+                        : noteCtrl.text.trim(),
+                    selectedDate,
+                    selectedCat,
+                    amt,
+                    !isExpense,
+                    note: noteCtrl.text.trim(),
+                  );
+
+                  // Add to transaction list
+                  transactions.insert(0, tx);
+
+                  Navigator.pop(context);
+                  onAdded();
+                },
             child: Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 14),
@@ -569,7 +583,10 @@ class _OverviewScreenState extends State<OverviewScreen> {
       // Recent transactions
       Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
         const Text('Recent transactions', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: C.textMain)),
-        _goldBadge('+ Add'),
+        GestureDetector(
+          onTap: () => showAddTxModal(context, onAdded: () => setState(() {})),
+          child: _goldBadge('+ Add'),
+        ),
       ]),
       const SizedBox(height: 12),
       ...transactions.take(8).map((t) => _TxRow(tx: t)),
@@ -680,10 +697,102 @@ class AspirationsScreen extends StatefulWidget {
 }
 
 class _AspirationsScreenState extends State<AspirationsScreen> {
-  final List<AspItem> _items = aspirations;
+  final List<AspItem> _items = List.from(aspirations);
+
   int _rating = 3;
   int get _pending => _items.where((a) => !a.approved && !a.declined).length;
 
+  void _addAspiration(
+    String name,
+    String store,
+    String category,
+    double price,
+    String reason,
+    String emoji,
+  ) {
+    if (name.trim().isEmpty) return;
+
+    setState(() {
+      _items.add(
+        AspItem(
+          name.trim(),
+          store.trim().isEmpty ? "Unknown" : store.trim(),
+          category.trim().isEmpty ? "Other" : category.trim(),
+          price,
+          reason.trim(),
+          emoji.trim().isEmpty ? "✨" : emoji.trim(),
+        ),
+      );
+    });
+  }
+  void _showAddDialog() {
+    final nameController = TextEditingController();
+    final storeController = TextEditingController();
+    final categoryController = TextEditingController();
+    final priceController = TextEditingController();
+    final reasonController = TextEditingController();
+    final emojiController = TextEditingController(text: "✨");
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text("Add Aspiration"),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: "Item Name"),
+              ),
+              TextField(
+                controller: storeController,
+                decoration: const InputDecoration(labelText: "Store"),
+              ),
+              TextField(
+                controller: categoryController,
+                decoration: const InputDecoration(labelText: "Category"),
+              ),
+              TextField(
+                controller: priceController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: "Price"),
+              ),
+              TextField(
+                controller: reasonController,
+                decoration: const InputDecoration(labelText: "Reason"),
+              ),
+              TextField(
+                controller: emojiController,
+                decoration: const InputDecoration(labelText: "Emoji"),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              _addAspiration(
+                nameController.text,
+                storeController.text,
+                categoryController.text,
+                double.tryParse(priceController.text) ?? 0,
+                reasonController.text,
+                emojiController.text,
+              );
+
+              Navigator.pop(context);
+            },
+            child: const Text("Add"),
+          ),
+        ],
+      ),
+    );
+  }
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
@@ -771,14 +880,32 @@ class _AspirationsScreenState extends State<AspirationsScreen> {
       ])),
       const SizedBox(height: 16),
 
-      Align(alignment: Alignment.centerRight,
-        child: Container(
-          width: 52, height: 52,
-          decoration: const BoxDecoration(shape: BoxShape.circle, color: C.gold,
-              boxShadow: [BoxShadow(color: Color(0x44C9962A), blurRadius: 12, offset: Offset(0, 4))]),
-          child: const Icon(Icons.add, color: Colors.white, size: 24),
-        ),
-      ),
+      Align(
+            alignment: Alignment.centerRight,
+            child: GestureDetector(
+              onTap: _showAddDialog,
+              child: Container(
+                width: 52,
+                height: 52,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: C.gold,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Color(0x44C9962A),
+                      blurRadius: 12,
+                      offset: Offset(0, 4),
+                    )
+                  ],
+                ),
+                child: const Icon(
+                  Icons.add,
+                  color: Colors.white,
+                  size: 24,
+                ),
+              ),
+            ),
+          ),
     ]),
   );
 }
